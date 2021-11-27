@@ -1,2 +1,2 @@
-# uni-stm32-generator
-for an stm32 university course
+# Sawtooth Generator with STM32F407VG
+A simple sawtooth generator for university course written in C in CubeIDE.
