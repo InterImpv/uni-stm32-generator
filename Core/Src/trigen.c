@@ -7,7 +7,7 @@
 
 #include "trigen.h"
 
-static const uint32_t CHIP_MAXFREQ_HZ = 0xfff;
+static const uint32_t MAX_AMPLITUDE = 0xfff;
 
 /* functions */
 
@@ -69,8 +69,9 @@ enum GEN_ERR gen_set_tick(trigen *generator, uint32_t tick)
 
 enum GEN_ERR gen_set_step(trigen *generator, uint32_t step)
 {
-	if (step != 0 && step < CHIP_MAXFREQ_HZ) {
+	if (step != 0 && step < MAX_AMPLITUDE) {
 		generator->step = step;
+		generator->norm_maximum = generator->step * ( generator->count_overflow / generator->step);
 		return GEN_EOK;
 	} else {
 		return GEN_EARG;
@@ -102,4 +103,10 @@ enum GEN_ERR gen_tick(trigen *generator)
 	}
 
 	return GEN_EOK;
+}
+
+inline const uint32_t gen_get_norm_amp(trigen *generator)
+{
+	//uint32_t max_amplitude = generator->step * ( generator->count_overflow / generator->step);
+	return (generator->count * generator->count_overflow) / generator->norm_maximum;
 }

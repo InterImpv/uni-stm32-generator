@@ -85,10 +85,20 @@ void Error_Handler(void);
 #define STEP_DEC_Pin GPIO_PIN_9
 #define STEP_DEC_GPIO_Port GPIOC
 #define STEP_DEC_EXTI_IRQn EXTI9_5_IRQn
+#define FINE_OR_FAST_Pin GPIO_PIN_15
+#define FINE_OR_FAST_GPIO_Port GPIOA
+#define FINE_OR_FAST_EXTI_IRQn EXTI15_10_IRQn
 #define STEP_INC_Pin GPIO_PIN_11
 #define STEP_INC_GPIO_Port GPIOC
 #define STEP_INC_EXTI_IRQn EXTI15_10_IRQn
 /* USER CODE BEGIN Private defines */
+
+enum STEP_CONTROL {
+	FREQ_STEP_1 = '1',
+	FREQ_STEP_10 = '2',
+	FREQ_STEP_100 = '3',
+	FREQ_STEP_SH = '>'
+};
 
 /* USER CODE END Private defines */
 

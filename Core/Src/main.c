@@ -37,20 +37,54 @@
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
 
-#include "systick.h"
+//#include "systick.h"
 #include "terminal.h"
 
-#include <stdio.h>
-#include <string.h>
+//#include <stdio.h>
 
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
 DAC_HandleTypeDef hdac;
 
-TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim9;
 
 /* USER CODE BEGIN PV */
+
+/* main constants */
+static const uint32_t FREQ_STEP_MAX = 1024;
+static const uint32_t FREQ_STEP_MIN = 1;
+
+static const uint32_t TICK_STEP_MAX = 64;
+static const uint32_t TICK_STEP_MIN = 0;
+
+static const uint32_t UINT32_DIGITS = 10;
+static const uint32_t STR2INT_BASE10 = 10;
+
+//#define __NORMALIZE_AMPLITUDE
+
+/*
+ * base_freq = (Ftim_clk) / (tim_period * DAC_MAX )
+ * TIM_period = (Ftim_clk) / (Fwanted * DAC_MAX)
+ */
+static const float base_freq = (80000000.f) / (260.417f * 4096.f);
+
+/* main variables */
+static uint32_t fine_step = 1;
+static uint32_t tick_step = 0;
+static uint32_t main_step = 1;
+
+/* control state machine */
+static uint8_t main_step_mode = FREQ_STEP_1;
+
+static float curr_freq = base_freq;
+
+/* general i/o buffer */
+static char str[TERM_1L_SIZE] = {' '};
+
+/* system generator and terminal pointers */
+static trigen *sysgen = NULL;
+static term_win *systerm = NULL;
 
 /* USER CODE END PV */
 
@@ -58,7 +92,7 @@ TIM_HandleTypeDef htim2;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DAC_Init(void);
-static void MX_TIM2_Init(void);
+static void MX_TIM9_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -66,34 +100,13 @@ static void MX_TIM2_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-//static uint32_t tim2_ticks = 0;
-
-static const uint32_t FREQ_STEP_MAX = 4096;
-static const uint32_t FREQ_STEP_MIN = 1;
-
-static const uint32_t TICK_STEP_MAX = 32;
-static const uint32_t TICK_STEP_MIN = 0;
-
-uint32_t fine_step = 1;
-uint32_t tick_step = 0;
-
-const uint32_t base_freq = 12;
-uint32_t curr_freq = base_freq;
-
-char str[TERM_1L_SIZE] = {' '};
-
-static trigen *sysgen = NULL;
-static term_win *systerm = NULL;
-
 /* misc functions */
-uint32_t clamp_ui32(uint32_t val, uint32_t min, uint32_t max)
+
+static uint32_t clamp_ui32(uint32_t val, uint32_t min, uint32_t max)
 {
 	const uint32_t ret = (val < min) ? min : val;
 	return (ret > max) ? max : ret;
 }
-
-static const uint32_t UINT32_DIGITS = 10;
-static const uint32_t STR2INT_BASE10 = 10;
 
 static char *__uint32_skip_zeroes(char *buf)
 {
@@ -109,7 +122,7 @@ static char *__uint32_skip_zeroes(char *buf)
 	return msd;
 }
 
-char *uint32_to_str(uint32_t val, char *buf)
+static char *uint32_to_str(uint32_t val, char *buf)
 {
 	/* transform each uint32 digit into char */
 	for(uint32_t i = UINT32_DIGITS; i > 0; i--, val /= STR2INT_BASE10)
@@ -118,7 +131,7 @@ char *uint32_to_str(uint32_t val, char *buf)
 	return buf;
 }
 
-char *uint32_to_zstr(uint32_t val, char *buf)
+static char *uint32_to_zstr(uint32_t val, char *buf)
 {
 	/* transform a given value */
 	buf = uint32_to_str(val, buf);
@@ -127,18 +140,66 @@ char *uint32_to_zstr(uint32_t val, char *buf)
 	return __uint32_skip_zeroes(buf);
 }
 
-/*void tim2_delay(uint32_t us)
+/* print */
+static void print_info(void)
 {
-	uint32_t delay = tim2_ticks + us;
-	while(tim2_ticks < delay);
-}*/
+	/* dislay info */
+	term_cls(systerm);
+
+	/* generator parameters */
+	term_putsxy(systerm, "Mul:", 0, 0);
+	term_putsxy(systerm, "Div:", 0, 1);
+	term_putsxy(systerm, uint32_to_zstr(fine_step, str), 4, 0);
+	term_putsxy(systerm, uint32_to_zstr(tick_step + 1, str), 4, 1);
+
+	/* generator output */
+	term_putsxy(systerm, "Freq:", 9, 0);
+	term_putsxy(systerm, uint32_to_zstr(curr_freq, str), 9, 1);
+
+	term_putchxy(systerm, main_step_mode, 15, 0);
+}
+
+/* mode state machine */
+static enum STEP_CONTROL mode_change(void)
+{
+	switch(main_step_mode)
+	{
+	case FREQ_STEP_1:
+		main_step = 10;
+		main_step_mode = FREQ_STEP_10;
+		break;
+	case FREQ_STEP_10:
+		main_step = 100;
+		main_step_mode = FREQ_STEP_100;
+		break;
+	case FREQ_STEP_100:
+		main_step = 2;
+		main_step_mode = FREQ_STEP_SH;
+		break;
+
+	case FREQ_STEP_SH:
+		main_step = 1;
+		main_step_mode = FREQ_STEP_1;
+		break;
+
+	default:
+		main_step_mode = FREQ_STEP_1;
+		break;
+	};
+
+	return main_step_mode;
+}
 
 /* main generator timer callback */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim)
 {
-	if (&htim2 == htim && NULL != sysgen)
+	if (&htim9 == htim && NULL != sysgen)
 	{
-		HAL_DAC_SetValue(&hdac, DAC_CHANNEL_1, DAC_ALIGN_12B_R, sysgen->count);
+		//#ifdef __NORMALIZE_AMPLITUDE
+		HAL_DAC_SetValue(&hdac, DAC_CHANNEL_1, DAC_ALIGN_12B_R, gen_get_norm_amp(sysgen));
+		//#else
+		//HAL_DAC_SetValue(&hdac, DAC_CHANNEL_1, DAC_ALIGN_12B_R, sysgen->count);
+		//#endif
 		gen_tick(sysgen);
 	}
 }
@@ -146,24 +207,42 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim)
 /* control key interrupt callbacks */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-	HAL_TIM_Base_Stop_IT(&htim2);
+	HAL_TIM_Base_Stop_IT(&htim9);
 
 	switch(GPIO_Pin)
 	{
+	/* divider ticks */
 	case GPIO_PIN_8:
-		if (tick_step > TICK_STEP_MIN)	{ tick_step -= 1; }
+		if (tick_step > TICK_STEP_MIN) 	{ tick_step -= 1; }
 		break;
-
 	case GPIO_PIN_6:
 		if (tick_step < TICK_STEP_MAX)	{ tick_step += 1; }
 		break;
 
+		/* main counter ticks */
 	case GPIO_PIN_9:
-		if (fine_step > FREQ_STEP_MIN)	{ fine_step /= 2; }
+		/* dec (or shift right) frequency */
+		if (fine_step > main_step) {
+			if (main_step_mode == FREQ_STEP_SH)
+				fine_step = fine_step >> 1;
+			else
+				fine_step -= main_step;
+		}
 		break;
 
 	case GPIO_PIN_11:
-		if (fine_step < FREQ_STEP_MAX)	{ fine_step *= 2; }
+		/* inc (or shift left) frequency */
+		if (fine_step < FREQ_STEP_MAX) {
+			if (main_step_mode == FREQ_STEP_SH)
+				fine_step = fine_step << 1;
+			else
+				fine_step += main_step;
+		}
+		break;
+
+	case GPIO_PIN_15:
+		/* change freq regulation mode*/
+		mode_change();
 		break;
 
 	default:
@@ -171,23 +250,19 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	};
 
 	/* reconfigure main generator */
+
 	fine_step = clamp_ui32(fine_step, FREQ_STEP_MIN, FREQ_STEP_MAX);
 	tick_step = clamp_ui32(tick_step, TICK_STEP_MIN, TICK_STEP_MAX);
 
 	gen_set_step(sysgen, fine_step);
 	gen_set_tick(sysgen, tick_step);
 
-	term_cls(systerm);
-	term_putslx(systerm, "Mul:", 0, 0);
-	term_putslx(systerm, "Div:", 1, 0);
-	term_putslx(systerm, uint32_to_zstr(fine_step, str), 0, 4);
-	term_putslx(systerm, uint32_to_zstr(tick_step + 1, str), 1, 4);
+	/* calculate approximate current frequency */
+	curr_freq = (float)(base_freq * (float)(fine_step)) / (float)(tick_step + 1);
 
-	curr_freq = (base_freq * fine_step) / (tick_step + 1);
-	term_putslx(systerm, "Freq:", 0, 8);
-	term_putslx(systerm, uint32_to_zstr(curr_freq, str), 1, 8);
+	print_info();
 
-	HAL_TIM_Base_Start_IT(&htim2);
+	HAL_TIM_Base_Start_IT(&htim9);
 }
 
 /* USER CODE END 0 */
@@ -211,13 +286,6 @@ int main(void)
 	fine_step = start_step;
 	tick_step = start_tick;
 
-	//if (GEN_EARG == gen_init(sysgen, GEN_12BIT, start_step, start_tick))
-	//	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_SET);
-
-	gen_init(sysgen, GEN_12BIT, start_step, start_tick);
-	gen_set_step(sysgen, start_step);
-	gen_set_tick(sysgen, start_tick);
-
 	/* USER CODE END 1 */
 
 	/* MCU Configuration--------------------------------------------------------*/
@@ -239,14 +307,20 @@ int main(void)
 	/* Initialize all configured peripherals */
 	MX_GPIO_Init();
 	MX_DAC_Init();
-	MX_TIM2_Init();
+	MX_TIM9_Init();
 	/* USER CODE BEGIN 2 */
 
+	/* initialize main generator */
+	gen_init(sysgen, GEN_12BIT, start_step, start_tick);
+
+	/* initialize terminal -> initialize lcd screen */
 	term_init(systerm);
-	sys_delay(10);
+	HAL_Delay(10);
+
+	print_info();
 
 	HAL_DAC_Start(&hdac, DAC_CHANNEL_1);
-	HAL_TIM_Base_Start_IT(&htim2);
+	HAL_TIM_Base_Start_IT(&htim9);
 
 	/* USER CODE END 2 */
 
@@ -257,14 +331,7 @@ int main(void)
 		/* USER CODE END WHILE */
 
 		/* USER CODE BEGIN 3 */
-		//HAL_TIM_Base_Stop_IT(&htim2);
-
-		//term_putsl(systerm, uint32_to_str(fine_step, str), 0);
-		//term_putsl(systerm, uint32_to_str(tick_step, str), 1);
 		term_draw(systerm);
-
-		//HAL_TIM_Base_Start_IT(&htim2);
-
 	}
 	/* USER CODE END 3 */
 }
@@ -290,7 +357,7 @@ void SystemClock_Config(void)
 	RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
 	RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
 	RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-	RCC_OscInitStruct.PLL.PLLM = 16;
+	RCC_OscInitStruct.PLL.PLLM = 8;
 	RCC_OscInitStruct.PLL.PLLN = 160;
 	RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
 	RCC_OscInitStruct.PLL.PLLQ = 4;
@@ -304,10 +371,10 @@ void SystemClock_Config(void)
 			|RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
 	RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
 	RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-	RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
-	RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+	RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+	RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV4;
 
-	if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
+	if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
 	{
 		Error_Handler();
 	}
@@ -352,47 +419,40 @@ static void MX_DAC_Init(void)
 }
 
 /**
- * @brief TIM2 Initialization Function
+ * @brief TIM9 Initialization Function
  * @param None
  * @retval None
  */
-static void MX_TIM2_Init(void)
+static void MX_TIM9_Init(void)
 {
 
-	/* USER CODE BEGIN TIM2_Init 0 */
+	/* USER CODE BEGIN TIM9_Init 0 */
 
-	/* USER CODE END TIM2_Init 0 */
+	/* USER CODE END TIM9_Init 0 */
 
 	TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-	TIM_MasterConfigTypeDef sMasterConfig = {0};
 
-	/* USER CODE BEGIN TIM2_Init 1 */
+	/* USER CODE BEGIN TIM9_Init 1 */
 
-	/* USER CODE END TIM2_Init 1 */
-	htim2.Instance = TIM2;
-	htim2.Init.Prescaler = 1;
-	htim2.Init.CounterMode = TIM_COUNTERMODE_DOWN;
-	htim2.Init.Period = 800;
-	htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-	htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-	if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+	/* USER CODE END TIM9_Init 1 */
+	htim9.Instance = TIM9;
+	htim9.Init.Prescaler = 0;
+	htim9.Init.CounterMode = TIM_COUNTERMODE_UP;
+	htim9.Init.Period = 260;
+	htim9.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+	htim9.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+	if (HAL_TIM_Base_Init(&htim9) != HAL_OK)
 	{
 		Error_Handler();
 	}
 	sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-	if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+	if (HAL_TIM_ConfigClockSource(&htim9, &sClockSourceConfig) != HAL_OK)
 	{
 		Error_Handler();
 	}
-	sMasterConfig.MasterOutputTrigger = TIM_TRGO_ENABLE;
-	sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-	if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
-	{
-		Error_Handler();
-	}
-	/* USER CODE BEGIN TIM2_Init 2 */
+	/* USER CODE BEGIN TIM9_Init 2 */
 
-	/* USER CODE END TIM2_Init 2 */
+	/* USER CODE END TIM9_Init 2 */
 
 }
 
@@ -436,9 +496,15 @@ static void MX_GPIO_Init(void)
 
 	/*Configure GPIO pins : TICK_DEC_Pin TICK_INC_Pin STEP_DEC_Pin STEP_INC_Pin */
 	GPIO_InitStruct.Pin = TICK_DEC_Pin|TICK_INC_Pin|STEP_DEC_Pin|STEP_INC_Pin;
-	GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+	GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+	/*Configure GPIO pin : FINE_OR_FAST_Pin */
+	GPIO_InitStruct.Pin = FINE_OR_FAST_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	HAL_GPIO_Init(FINE_OR_FAST_GPIO_Port, &GPIO_InitStruct);
 
 	/* EXTI interrupt init*/
 	HAL_NVIC_SetPriority(EXTI9_5_IRQn, 1, 0);

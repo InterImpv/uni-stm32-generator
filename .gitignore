@@ -1,6 +1,10 @@
 # Prerequisites
 *.d
 
+# CubeIDE misc files
+*.bin
+*.list
+
 # Object files
 *.o
 *.ko

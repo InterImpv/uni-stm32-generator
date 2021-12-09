@@ -72,7 +72,7 @@ void term_putch(term_win *term, const char ch);
 
 void term_puts(term_win *term, const char *str);
 void term_putsl(term_win *term, const char *str, const uint8_t line);
-void term_putslx(term_win *term, const char *str, const uint8_t line, const uint8_t x);
+void term_putsxy(term_win *term, const char *str, const uint8_t line, const uint8_t x);
 
 /* erases char at current cursor position and backs cursor once*/
 void term_erasech(term_win *term);

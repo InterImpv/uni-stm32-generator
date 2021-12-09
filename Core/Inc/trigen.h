@@ -31,6 +31,8 @@ typedef struct __trigen
 
 	uint32_t tick_overflow;		// ~ frequency divider
 	uint32_t tick;				// divider counter tick
+
+	uint32_t norm_maximum;
 } trigen;
 
 /* generator functions */
@@ -42,5 +44,7 @@ enum GEN_ERR gen_set_step(trigen *generator, uint32_t step);
 
 enum GEN_ERR gen_count(trigen *generator);
 enum GEN_ERR gen_tick(trigen *generator);
+
+const uint32_t gen_get_norm_amp(trigen *generator);
 
 #endif /* INC_TRIGEN_H_ */

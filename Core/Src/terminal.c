@@ -12,12 +12,12 @@
 #include <stdbool.h>
 
 /* not used anywhere, but we can use this in conjuntion with @term_draw to force a redraw */
-void term_request_update(term_win *term)
+inline void term_request_update(term_win *term)
 {
 	term->flags.update_req = true;
 }
 
-void term_reject_update(term_win *term)
+inline void term_reject_update(term_win *term)
 {
 	term->flags.update_req = false;
 }
@@ -157,9 +157,9 @@ void term_putsl(term_win *term, const char *str, const uint8_t line)
 	}
 }
 
-void term_putslx(term_win *term, const char *str, const uint8_t line, const uint8_t x)
+void term_putsxy(term_win *term, const char *str, const uint8_t x, const uint8_t y)
 {
-	term_goto(term, x, line);
+	term_goto(term, x, y);
 
 	while (*str != '\0') {
 		term_putch(term, *str);
