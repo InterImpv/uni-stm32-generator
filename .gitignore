@@ -5,6 +5,11 @@
 *.bin
 *.list
 
+# ^ does not work for some reason & i am tired
+*.bin
+Debug/kurs4.bin
+Debug/kurs4.list
+
 # Object files
 *.o
 *.ko

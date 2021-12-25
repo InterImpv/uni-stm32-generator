@@ -74,8 +74,6 @@ void Error_Handler(void);
 #define LCDD6_PIN_GPIO_Port GPIOE
 #define LCDD7_PIN_Pin GPIO_PIN_15
 #define LCDD7_PIN_GPIO_Port GPIOE
-#define LED_BLUE_Pin GPIO_PIN_15
-#define LED_BLUE_GPIO_Port GPIOD
 #define TICK_DEC_Pin GPIO_PIN_6
 #define TICK_DEC_GPIO_Port GPIOC
 #define TICK_DEC_EXTI_IRQn EXTI9_5_IRQn

@@ -61,11 +61,12 @@ static const uint32_t TICK_STEP_MIN = 0;
 static const uint32_t UINT32_DIGITS = 10;
 static const uint32_t STR2INT_BASE10 = 10;
 
-//#define __NORMALIZE_AMPLITUDE
+#define __NORMALIZE_AMPLITUDE
 
 /*
  * base_freq = (Ftim_clk) / (tim_period * DAC_MAX )
  * TIM_period = (Ftim_clk) / (Fwanted * DAC_MAX)
+ * Fwanted ~ base_Freq
  */
 static const float base_freq = (80000000.f) / (260.417f * 4096.f);
 
@@ -102,12 +103,25 @@ static void MX_TIM9_Init(void);
 
 /* misc functions */
 
+/* @brief	clamps a value between min & max
+ * @param 	val: value to be clamped
+ * @param 	min: low boundary
+ * @param 	max: high boundary
+ * @retval	ret: clamped value
+ */
 static uint32_t clamp_ui32(uint32_t val, uint32_t min, uint32_t max)
 {
 	const uint32_t ret = (val < min) ? min : val;
 	return (ret > max) ? max : ret;
 }
 
+/* @brief	u32_to_zstr helper function
+ * Moves a given string pointer to the first non-zero value, ex
+ * 		i	>  01234567
+ * 		buf = "00005071\n" -> msd = &buf[4]
+ * @param 	buf: a string pointer
+ * @retval	msd: a pointer to the supposed most significant digit
+ */
 static char *__uint32_skip_zeroes(char *buf)
 {
 	char *msd = &buf[UINT32_DIGITS - 1];
@@ -122,6 +136,12 @@ static char *__uint32_skip_zeroes(char *buf)
 	return msd;
 }
 
+/* @brief	converts u32 to string
+ * Converts a given 32-bit unsigned integer to a string
+ * @param 	val: a value to be converted
+ * @param 	buf: a pointer to character buffer
+ * @retval	buf
+ */
 static char *uint32_to_str(uint32_t val, char *buf)
 {
 	/* transform each uint32 digit into char */
@@ -131,6 +151,13 @@ static char *uint32_to_str(uint32_t val, char *buf)
 	return buf;
 }
 
+
+/* @brief	converts u32 to string
+ * Converts a given 32-bit unsigned integer to a string without leading zeroes
+ * @param 	val: a value to be converted
+ * @param 	buf: a pointer to character buffer
+ * @retval	buf
+ */
 static char *uint32_to_zstr(uint32_t val, char *buf)
 {
 	/* transform a given value */
@@ -140,7 +167,11 @@ static char *uint32_to_zstr(uint32_t val, char *buf)
 	return __uint32_skip_zeroes(buf);
 }
 
-/* print */
+/* @brief	prints information to display
+ * Prints all sawtooth generator parameters and current approximate frequency
+ * @param 	None
+ * @retval	None
+ */
 static void print_info(void)
 {
 	/* dislay info */
@@ -159,7 +190,14 @@ static void print_info(void)
 	term_putchxy(systerm, main_step_mode, 15, 0);
 }
 
-/* mode state machine */
+/* @brief	generator step inc/dec mode control state machine
+ * 1 = fine_step (+ or -) 	1
+ * 2 = fine_step (+ or -) 	10
+ * 3 = fine_step (+ or -) 	100
+ * > = fine_step (<< or >>) 1
+ * @param 	None
+ * @retval	main_step_mode: current mode
+ */
 static enum STEP_CONTROL mode_change(void)
 {
 	switch(main_step_mode)
@@ -195,11 +233,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim)
 {
 	if (&htim9 == htim && NULL != sysgen)
 	{
-		//#ifdef __NORMALIZE_AMPLITUDE
+#ifdef __NORMALIZE_AMPLITUDE
 		HAL_DAC_SetValue(&hdac, DAC_CHANNEL_1, DAC_ALIGN_12B_R, gen_get_norm_amp(sysgen));
-		//#else
-		//HAL_DAC_SetValue(&hdac, DAC_CHANNEL_1, DAC_ALIGN_12B_R, sysgen->count);
-		//#endif
+#else
+		HAL_DAC_SetValue(&hdac, DAC_CHANNEL_1, DAC_ALIGN_12B_R, sysgen->count);
+#endif
 		gen_tick(sysgen);
 	}
 }
@@ -219,7 +257,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 		if (tick_step < TICK_STEP_MAX)	{ tick_step += 1; }
 		break;
 
-		/* main counter ticks */
+	/* main counter ticks */
 	case GPIO_PIN_9:
 		/* dec (or shift right) frequency */
 		if (fine_step > main_step) {
@@ -240,8 +278,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 		}
 		break;
 
+	/* change freq regulation mode*/
 	case GPIO_PIN_15:
-		/* change freq regulation mode*/
 		mode_change();
 		break;
 
@@ -250,7 +288,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	};
 
 	/* reconfigure main generator */
-
 	fine_step = clamp_ui32(fine_step, FREQ_STEP_MIN, FREQ_STEP_MAX);
 	tick_step = clamp_ui32(tick_step, TICK_STEP_MIN, TICK_STEP_MAX);
 
@@ -468,15 +505,11 @@ static void MX_GPIO_Init(void)
 	/* GPIO Ports Clock Enable */
 	__HAL_RCC_GPIOA_CLK_ENABLE();
 	__HAL_RCC_GPIOE_CLK_ENABLE();
-	__HAL_RCC_GPIOD_CLK_ENABLE();
 	__HAL_RCC_GPIOC_CLK_ENABLE();
 
 	/*Configure GPIO pin Output Level */
 	HAL_GPIO_WritePin(GPIOE, LCDRS_PIN_Pin|LCDRW_PIN_Pin|LCDEN_PIN_Pin|LCDD4_PIN_Pin
 			|LCDD5_PIN_Pin|LCDD6_PIN_Pin|LCDD7_PIN_Pin, GPIO_PIN_RESET);
-
-	/*Configure GPIO pin Output Level */
-	HAL_GPIO_WritePin(LED_BLUE_GPIO_Port, LED_BLUE_Pin, GPIO_PIN_RESET);
 
 	/*Configure GPIO pins : LCDRS_PIN_Pin LCDRW_PIN_Pin LCDEN_PIN_Pin LCDD4_PIN_Pin
                            LCDD5_PIN_Pin LCDD6_PIN_Pin LCDD7_PIN_Pin */
@@ -486,13 +519,6 @@ static void MX_GPIO_Init(void)
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_MEDIUM;
 	HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
-
-	/*Configure GPIO pin : LED_BLUE_Pin */
-	GPIO_InitStruct.Pin = LED_BLUE_Pin;
-	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	HAL_GPIO_Init(LED_BLUE_GPIO_Port, &GPIO_InitStruct);
 
 	/*Configure GPIO pins : TICK_DEC_Pin TICK_INC_Pin STEP_DEC_Pin STEP_INC_Pin */
 	GPIO_InitStruct.Pin = TICK_DEC_Pin|TICK_INC_Pin|STEP_DEC_Pin|STEP_INC_Pin;

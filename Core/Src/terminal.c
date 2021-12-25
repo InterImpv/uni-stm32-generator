@@ -11,12 +11,13 @@
 #include <string.h>
 #include <stdbool.h>
 
-/* not used anywhere, but we can use this in conjuntion with @term_draw to force a redraw */
+/* sets update request flag */
 inline void term_request_update(term_win *term)
 {
 	term->flags.update_req = true;
 }
 
+/* resets update request flag */
 inline void term_reject_update(term_win *term)
 {
 	term->flags.update_req = false;
@@ -39,12 +40,7 @@ void term_cls(term_win *term)
 	term_request_update(term);
 }
 
-/*
-sends whole primary buffer to lcd display
-this function is somewhat fast and sometimes lcd display can't keep up with it
-so it actually redraws the screen only if @updateRequest flag of @std_win is set
-if you need to actively redraw lcd screen every tick use @term_req_upd before calling this
- */
+/* sends  */
 void term_draw(term_win *term)
 {
 	if (term->flags.update_req) {
@@ -186,8 +182,8 @@ void term_init(term_win *term)
 	term->rows = 2;
 	term->cols = 16;
 
-	term->flags.blink = false;   // force first update
-	term->flags.cursor = false;     // not implemented yet
+	term->flags.blink = false;
+	term->flags.cursor = false;
 	term->flags.update_req = true;
 
 	term_cls(term);     //flush the screen buffer

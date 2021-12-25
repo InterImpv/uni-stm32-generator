@@ -30,9 +30,9 @@ typedef struct
 {
 	/* primary screen buffer */
     char win[TERM_2L_SIZE];
-    uint8_t size;// = TERM_2L_SIZE;
-    uint8_t rows;// = 2;
-    uint8_t cols;// = 16;
+    uint8_t size;				// = TERM_2L_SIZE;
+    uint8_t rows;				// = 2;
+    uint8_t cols;				// = 16;
 
     /* cursor position */
     uint8_t cursor_x;
@@ -40,9 +40,6 @@ typedef struct
 
     /* settings */
     term_flags flags;
-    //uint8_t update_req : 1;
-    //uint8_t blink : 1;
-    //uint8_t cursor : 1;
 
 }term_win;
 
@@ -57,10 +54,11 @@ void term_goto(term_win *term, const uint8_t x, const uint8_t y);
 void term_cls(term_win *term);
 
 /*
-sends whole primary buffer to lcd display
-this function is somewhat fast and sometimes lcd display can't keep up with it
-so it actually redraws the screen only if @updateRequest flag of @std_win is set
-if you need to actively redraw lcd screen every tick use @term_req_upd before calling this
+ * sends whole primary buffer to lcd display
+ * this function is somewhat slow and sometimes mcu can't keep up with it
+ * so it actually redraws the screen only if @updateRequest flag of @std_win is
+ * set  * if you need to actively redraw lcd screen every tick use @term_req_upd
+ * before calling this
  */
 void term_draw(term_win *term);
 
